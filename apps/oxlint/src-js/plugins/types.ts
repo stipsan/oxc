@@ -39,3 +39,8 @@ export interface EnterExit {
   enter: VisitFn | null;
   exit: VisitFn | null;
 }
+
+// Rule metadata.
+export interface RuleMeta {
+  fixable?: 'code' | 'whitespace';
+}

@@ -1,3 +1,7 @@
+import { Fix, type Fixer, fixer, type Fixes, processFixes } from './fix.js';
+
+import type { RuleMeta } from './types.ts';
+
 // Diagnostic in form passed by user to `Context#report()`
 interface Diagnostic {
   message: string;
@@ -6,6 +10,7 @@ interface Diagnostic {
     end: number;
     [key: string]: unknown;
   };
+  fix?: (fixer: Fixer) => Fixes;
 }
 
 // Diagnostic in form sent to Rust
@@ -13,6 +18,7 @@ interface DiagnosticReport {
   message: string;
   loc: { start: number; end: number };
   ruleIndex: number;
+  fixes: Fix[] | null;
 }
 
 // Diagnostics array. Reused for every file.
@@ -46,6 +52,10 @@ interface InternalContext {
   filePath: string;
   // Options
   options: unknown[];
+  // Rule metadata
+  meta: RuleMeta;
+  // `true` if fixes are enabled
+  fixesEnabled: boolean;
 }
 
 /**
@@ -62,12 +72,14 @@ export class Context {
    * @class
    * @param fullRuleName - Rule name, in form `<plugin>/<rule>`
    */
-  constructor(fullRuleName: string) {
+  constructor(fullRuleName: string, meta: RuleMeta, fixesEnabled: boolean) {
     this.#internal = {
       id: fullRuleName,
       filePath: '',
       ruleIndex: 0,
       options: [],
+      meta,
+      fixesEnabled,
     };
   }
 
@@ -107,10 +119,26 @@ export class Context {
   report(diagnostic: Diagnostic): void {
     const internal = this.#internal;
     if (internal.filePath === '') throw new Error('Cannot report errors in `createOnce`');
+
+    let fixes = null;
+    if (internal.fixesEnabled) {
+      const { fix } = diagnostic;
+      // ESLint silently ignores non-function `fix` values, so we do the same
+      if (typeof fix === 'function') {
+        // TODO: Add test for `this = diagnostic` in `fix` function
+        fixes = processFixes(fix.call(diagnostic, fixer));
+
+        if (fixes !== null && internal.meta.fixable === null) {
+          throw new Error('Fixable rules must set the `meta.fixable` property to "code" or "whitespace".');
+        }
+      }
+    }
+
     diagnostics.push({
       message: diagnostic.message,
       loc: { start: diagnostic.node.start, end: diagnostic.node.end },
       ruleIndex: internal.ruleIndex,
+      fixes,
     });
   }
 

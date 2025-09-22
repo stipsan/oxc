@@ -1,7 +1,7 @@
 import { Context } from './context.js';
 import { getErrorMessage } from './utils.js';
 
-import type { AfterHook, BeforeHook, Visitor, VisitorWithHooks } from './types.ts';
+import type { AfterHook, BeforeHook, RuleMeta, Visitor, VisitorWithHooks } from './types.ts';
 
 // Linter plugin, comprising multiple rules
 export interface Plugin {
@@ -19,10 +19,12 @@ export interface Plugin {
 export type Rule = CreateRule | CreateOnceRule;
 
 interface CreateRule {
+  meta?: RuleMeta;
   create: (context: Context) => Visitor;
 }
 
 interface CreateOnceRule {
+  meta?: RuleMeta;
   create?: (context: Context) => Visitor;
   createOnce: (context: Context) => VisitorWithHooks;
 }
@@ -54,6 +56,11 @@ const registeredPluginPaths = new Set<string>();
 // Indexed by `ruleId`, which is passed to `lintFile`.
 export const registeredRules: RuleAndContext[] = [];
 
+// Default rule metadata, used if `rule.meta` is not supplied.
+const emptyRuleMeta: RuleMeta = {
+  fixable: null,
+};
+
 /**
  * Load a plugin.
  *
@@ -64,14 +71,17 @@ export const registeredRules: RuleAndContext[] = [];
  * @returns {string} - JSON result
  */
 export async function loadPlugin(path: string): Promise<string> {
+  // TODO: Make this configurable
+  const fixesEnabled = true;
+
   try {
-    return await loadPluginImpl(path);
+    return await loadPluginImpl(path, fixesEnabled);
   } catch (err) {
     return JSON.stringify({ Failure: getErrorMessage(err) });
   }
 }
 
-async function loadPluginImpl(path: string): Promise<string> {
+async function loadPluginImpl(path: string, fixesEnabled: boolean): Promise<string> {
   if (registeredPluginPaths.has(path)) {
     return JSON.stringify({
       Failure: 'This plugin has already been registered',
@@ -91,9 +101,26 @@ async function loadPluginImpl(path: string): Promise<string> {
 
   for (let i = 0; i < ruleNamesLen; i++) {
     const ruleName = ruleNames[i],
-      rule = rules[ruleName];
+      rule = rules[ruleName],
+      fullRuleName = `${pluginName}/${ruleName}`;
 
-    const context = new Context(`${pluginName}/${ruleName}`);
+    // Validate `rule.meta` and convert to object with standardized shape
+    // (all properties defined with default values if not supplied)
+    let ruleMeta = rule.meta;
+    if (ruleMeta == null) {
+      ruleMeta = emptyRuleMeta;
+    } else {
+      if (typeof ruleMeta !== 'object') throw new Error('Invalid `meta`');
+      let { fixable } = ruleMeta;
+      if (fixable === void 0) {
+        fixable = null;
+      } else if (fixable !== 'code' && fixable !== 'whitespace') {
+        throw new Error('Invalid `meta.fixable`');
+      }
+      ruleMeta = { fixable };
+    }
+
+    const context = new Context(fullRuleName, ruleMeta, fixesEnabled);
 
     let ruleAndContext;
     if ('createOnce' in rule) {
