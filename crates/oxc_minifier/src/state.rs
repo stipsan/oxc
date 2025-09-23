@@ -1,6 +1,7 @@
 use oxc_ecmascript::constant_evaluation::ConstantValue;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use oxc_data_structures::stack::Stack;
 use oxc_span::{Atom, SourceType};
 use oxc_syntax::symbol::SymbolId;
 
@@ -37,12 +38,12 @@ impl MinifierState<'_> {
 
 /// Stack to track class symbol information
 pub struct ClassSymbolsStack<'a> {
-    stack: Vec<FxHashSet<Atom<'a>>>,
+    stack: Stack<FxHashSet<Atom<'a>>>,
 }
 
 impl<'a> ClassSymbolsStack<'a> {
     pub fn new() -> Self {
-        Self { stack: Vec::new() }
+        Self { stack: Stack::new() }
     }
 
     /// Clear all tracked classes
